@@ -158,8 +158,8 @@ class FS:
 def test():
     global sso
     login_start = time.time()
-    username = "20338209150460"
-    password = "042039"
+    username = 学号
+    password = 密码
     login = Login(username, password)
     sso = login.login()
     print(f"登录耗时: {time.time()-login_start}")
