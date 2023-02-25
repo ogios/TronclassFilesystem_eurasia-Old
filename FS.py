@@ -1,10 +1,12 @@
 import json
 import time
-
+import os
 from Login import SSO, Login
 
-sso = None
-
+sso = SSO({})
+PATH = os.path.dirname(__file__) + "/downloads/"
+if not os.path.exists(PATH):
+    os.mkdir(PATH)
 
 class Node:
     def __init__(self, id: int, name: str, is_dir: bool, filesize: int, children: dict, parent):
@@ -34,6 +36,24 @@ class Node:
         self.children.update(dirs)
         self.children.update(files)
         self.inited = True
+
+    def download(self):
+        if self.is_dir:
+            return "文件夹无法下载"
+        else:
+            try:
+                url = f"http://lms.eurasia.edu/api/uploads/{self.id}/blob"
+                res = sso.get(url, allow_redirects=False)
+                location = res.headers.get("Location", None)
+                if location:
+                    res = sso.get(location, stream=True)
+                    with open(PATH + self.name, "wb") as f:
+                        for cont in res.iter_content(10240):
+                            f.write(cont)
+                    return f"{self.name} - 下载完成。"
+            except Exception as e:
+                return f"{self.name} - 下载失败！"
+
 
 
 def addNode(uploads: list, nodes: dict, parent: Node):
@@ -135,14 +155,14 @@ class FS:
             self.now.init()
 
 
-if __name__ == "__main__":
+def test():
+    global sso
     login_start = time.time()
-    username = 学号
-    password = 密码
+    username = "20338209150460"
+    password = "042039"
     login = Login(username, password)
     sso = login.login()
     print(f"登录耗时: {time.time()-login_start}")
-
 
     fs_start = time.time()
     fs = FS()
@@ -150,10 +170,32 @@ if __name__ == "__main__":
     print(fs.ls())
     print(fs.now.getPath())
 
-    cdid = int(input("id: "))
-    cd_start = time.time()
-    fs.cd(cdid)
-    print(f"cd并获取新内容耗时: {time.time()-cd_start}")
-    print(fs.ls())
-    print(fs.now.getPath())
+    while 1:
+        cmd = input(">>>").split()
+        if cmd[0] == "ls":
+            print(fs.ls())
+        elif cmd[0] == "cd":
+            try:
+                if cmd[-1] == "..":
+                    cdid = cmd[-1]
+                else:
+                    cdid = int(cmd[-1])
+                cd_start = time.time()
+                fs.cd(cdid)
+                print(f"cd并获取新内容耗时: {time.time()-cd_start}")
+            except Exception as e:
+                print("Wrong input")
+        elif cmd[0] == "get":
+            try:
+                getid = int(cmd[-1])
+                get_start = time.time()
+                print(fs.now.children[getid].download())
+                print(f"下载内容耗时: {time.time() - get_start}")
+            except Exception as e:
+                print("Wrong input")
+
+
+
+if __name__ == "__main__":
+    test()
 
