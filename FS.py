@@ -1,7 +1,13 @@
 import json
+import random
 import time
 import os
+import traceback
+import requests
+from requests_toolbelt.multipart.encoder import MultipartEncoder
+
 from Login import SSO, Login
+from tempzip import compress
 
 sso = SSO({})
 PATH = os.path.dirname(__file__) + "/downloads/"
@@ -130,6 +136,50 @@ def getFiles(node: Node) -> dict:
         children = addNode(js["uploads"], children, node)
     return children
 
+def uplaodFile(filename, parentid):
+    assert os.path.exists(filename)
+
+    url = "http://lms.eurasia.edu/api/uploads"
+    size = os.path.getsize(filename)
+    data = {
+        "name": os.path.basename(filename),
+        "size": size,
+        "parent_id": parentid,
+        "is_scorm": False,
+        "is_wmpkg": False,
+        "source": "",
+        "is_marked_attachment": False,
+        "embed_material_type": ""
+    }
+
+    headers = {
+        "Content-Type": "application/json;charset=UTF-8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50"
+    }
+    res = sso.post(url, data=json.dumps(data), headers=headers)
+    js = json.loads(res.text)
+
+    upload_url = js["upload_url"]
+    requests.options(upload_url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50"
+    }
+    multipart = MultipartEncoder(
+        fields={
+            "file": (os.path.basename(filename), open(filename, "rb"), "application/octet-stream")
+        },
+        boundary="-----------------------------" + str(random.randint(1e28, 1e29 - 1))
+    )
+    headers["Content-Type"] = multipart.content_type
+    res = requests.put(upload_url, data=multipart, headers=headers)
+    js: dict = json.loads(res.text)
+    if js.__contains__("file_key"):
+        return 1
+    elif (js.__contains__("error")) & (js["error"] == "Invalid file type."):
+        return 2
+    else:
+        raise Exception(res.text)
+
 
 class FS:
     def __init__(self):
@@ -147,19 +197,74 @@ class FS:
     def cd(self, _id):
         if (_id == "..") & (self.now.parent is not None):
             self.now:Node = self.now.parent
-        elif isinstance(_id, int):
+        elif isinstance(_id, int) and self.now.children[_id].is_dir:
             self.now:Node = self.now.children[_id]
         else:
             print("Wrong id input")
         if not self.now.inited:
             self.now.init()
 
+    def upload(self, filename):
+        """
+        上传文件
+        """
+        # assert os.path.exists(filename)
+        # """获取上传链接"""
+        # url = "http://lms.eurasia.edu/api/uploads"
+        # size = os.path.getsize(filename)
+        # data = {
+        #     "name": os.path.basename(filename),
+        #     "size": size,
+        #     "parent_id": self.now.id,
+        #     "is_scorm": False,
+        #     "is_wmpkg": False,
+        #     "source":"",
+        #     "is_marked_attachment": False,
+        #     "embed_material_type":""
+        # }
+        #
+        # headers = {
+        #     "Content-Type": "application/json;charset=UTF-8",
+        #     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50"
+        # }
+        # res = sso.post(url, data=json.dumps(data), headers=headers)
+        # js = json.loads(res.text)
+
+        """上传文件"""
+        try:
+            # upload_url = js["upload_url"]
+            # requests.options(upload_url)
+            uploadStatus = uplaodFile(filename, self.now.id)
+            if uploadStatus == 1:
+                self.now.init()
+                return "上传完成"
+            elif uploadStatus == 2:
+                print("格式不支持，正在压缩...")
+                compressStatus = compress(filename)
+                if (compressStatus != 0) & (compressStatus != 2):
+                    print(compressStatus)
+                    uploadStatus = uplaodFile(compressStatus, self.now.id)
+                    if uploadStatus == 1:
+                        self.now.init()
+                        return "上传完成"
+                    else:
+                        return f"上传失败 - {uploadStatus}"
+                else:
+                    return f"压缩失败 - {compressStatus}"
+
+        except Exception as e:
+            traceback.print_exc()
+
+
+
+
+
 
 def test():
     global sso
     login_start = time.time()
-    username = 学号
-    password = 密码
+    username = "20338209150460"
+    password = "042039"
     login = Login(username, password)
     sso = login.login()
     print(f"登录耗时: {time.time()-login_start}")
@@ -184,7 +289,7 @@ def test():
                 fs.cd(cdid)
                 print(f"cd并获取新内容耗时: {time.time()-cd_start}")
             except Exception as e:
-                print("Wrong input")
+                traceback.print_exc()
         elif cmd[0] == "get":
             try:
                 getid = int(cmd[-1])
@@ -192,7 +297,18 @@ def test():
                 print(fs.now.children[getid].download())
                 print(f"下载内容耗时: {time.time() - get_start}")
             except Exception as e:
-                print("Wrong input")
+                traceback.print_exc()
+        elif cmd[0] == "upload":
+            try:
+                filename = "".join(cmd[1:])
+                print(filename)
+                upload_start = time.time()
+                print(fs.upload(filename))
+                print(f"上传内容耗时: {time.time() - upload_start}")
+            except Exception as e:
+                traceback.print_exc()
+        elif cmd[0] == "reload":
+            fs.now.init()
 
 
 
