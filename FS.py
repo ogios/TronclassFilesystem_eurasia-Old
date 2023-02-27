@@ -4,6 +4,8 @@ import random
 import time
 import os
 import traceback
+from threading import Thread
+
 import requests
 import base64
 from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -51,7 +53,7 @@ class Node:
         self.init()
         for i in self.children.values():
             if i.is_dir:
-                print(i.name, end=" | ")
+                # print(i.name, end=" | ")
                 i.load()
 
 
@@ -200,8 +202,9 @@ class FS:
         self.now:Node = self.root
         # sso.get("http://lms.eurasia.edu/center/static/js/wg-apps.js")
         # self.root.init()
-        self.root.load()
-        print()
+        Thread(target=self.root.load, daemon=True).start()
+        # self.root.load()
+        # print()
         sso.get("http://lms.eurasia.edu/center/api/users/20338209150460/apps-panel-settings")
         # sso.get("http://lms.eurasia.edu/center/api/users/20338209150460/permissions")
         print(sso.getCookies())
@@ -210,6 +213,10 @@ class FS:
         return tuple(self.now.children.items())[num][0]
 
     def ls(self):
+        if not self.now.inited:
+            print(f"{self.now.name} is initializing, wait for a sec...")
+        while not self.now.inited:
+            time.sleep(0.5)
         nodes =  self.now.children.values()
         string = ""
         for i, node in enumerate(nodes):
@@ -241,7 +248,7 @@ class FS:
         if (_id == "..") & (self.now.parent is not None):
             self.now:Node = self.now.parent
         elif isinstance(_id, int) and self.now.children[_id].is_dir:
-            print(f"changeto {self.now.children[_id].name}")
+            print(f"changed to {self.now.children[_id].name}")
             self.now:Node = self.now.children[_id]
         else:
             print("Wrong id input")
