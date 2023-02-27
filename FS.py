@@ -1,9 +1,11 @@
+import getpass
 import json
 import random
 import time
 import os
 import traceback
 import requests
+import base64
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from Login import SSO, Login
@@ -11,6 +13,7 @@ from tempzip import compress
 
 sso = SSO({})
 PATH = os.path.dirname(__file__) + "/downloads/"
+PATH_CONF = os.path.dirname(__file__) + "/conf.json"
 if not os.path.exists(PATH):
     os.mkdir(PATH)
 
@@ -39,9 +42,19 @@ class Node:
     def init(self):
         dirs = getDirs(self)
         files = getFiles(self)
+        self.children = dict()
         self.children.update(dirs)
         self.children.update(files)
         self.inited = True
+
+    def load(self):
+        self.init()
+        for i in self.children.values():
+            if i.is_dir:
+                print(i.name, end=" | ")
+                i.load()
+
+
 
     def download(self):
         if self.is_dir:
@@ -93,7 +106,7 @@ def getDirs(node: Node) -> dict:
     params = {
         "conditions": json.dumps(condition),
         "page": 1,
-        "page_size": 20,
+        "page_size": 100,
     }
     firstPage = sso.get(url, params=params)
     js_first = json.loads(firstPage.text)
@@ -124,7 +137,7 @@ def getFiles(node: Node) -> dict:
     params = {
         "conditions": json.dumps(condition),
         "page": 1,
-        "page_size": 20,
+        "page_size": 100,
     }
     firstPage = sso.get(url, params=params)
     js_first = json.loads(firstPage.text)
@@ -186,18 +199,49 @@ class FS:
         self.root = Node(id=0, name="root", is_dir=True, filesize=0, children=dict(), parent=None)
         self.now:Node = self.root
         # sso.get("http://lms.eurasia.edu/center/static/js/wg-apps.js")
-        self.root.init()
+        # self.root.init()
+        self.root.load()
+        print()
         sso.get("http://lms.eurasia.edu/center/api/users/20338209150460/apps-panel-settings")
         # sso.get("http://lms.eurasia.edu/center/api/users/20338209150460/permissions")
         print(sso.getCookies())
 
-    def ls(self):
-        return self.now.children
+    def getIdByIndex(self, num):
+        return tuple(self.now.children.items())[num][0]
 
-    def cd(self, _id):
+    def ls(self):
+        nodes =  self.now.children.values()
+        string = ""
+        for i, node in enumerate(nodes):
+            string += f"{i}. {node.name} \n"
+        return string
+
+    def cd(self, name):
+        cded = False
+        if isinstance(name, int):
+            self.cdid(self.getIdByIndex(name))
+            cded = True
+        elif isinstance(name, str):
+            if name == "..":
+                self.cdid("..")
+                cded = True
+            else:
+                nodes = self.now.children.items()
+                for i in nodes:
+                    if i[1].name == name:
+                        self.cdid(i[0])
+                        cded = True
+                        break
+        if not cded:
+            return "Wrong name"
+
+
+
+    def cdid(self, _id):
         if (_id == "..") & (self.now.parent is not None):
             self.now:Node = self.now.parent
         elif isinstance(_id, int) and self.now.children[_id].is_dir:
+            print(f"changeto {self.now.children[_id].name}")
             self.now:Node = self.now.children[_id]
         else:
             print("Wrong id input")
@@ -208,32 +252,7 @@ class FS:
         """
         上传文件
         """
-        # assert os.path.exists(filename)
-        # """获取上传链接"""
-        # url = "http://lms.eurasia.edu/api/uploads"
-        # size = os.path.getsize(filename)
-        # data = {
-        #     "name": os.path.basename(filename),
-        #     "size": size,
-        #     "parent_id": self.now.id,
-        #     "is_scorm": False,
-        #     "is_wmpkg": False,
-        #     "source":"",
-        #     "is_marked_attachment": False,
-        #     "embed_material_type":""
-        # }
-        #
-        # headers = {
-        #     "Content-Type": "application/json;charset=UTF-8",
-        #     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.50"
-        # }
-        # res = sso.post(url, data=json.dumps(data), headers=headers)
-        # js = json.loads(res.text)
-
-        """上传文件"""
         try:
-            # upload_url = js["upload_url"]
-            # requests.options(upload_url)
             uploadStatus = uplaodFile(filename, self.now.id)
             if uploadStatus == 1:
                 self.now.init()
@@ -255,19 +274,55 @@ class FS:
         except Exception as e:
             traceback.print_exc()
 
+    def delete(self, num):
+        fileid = self.getIdByIndex(num)
+        url = f"http://lms.eurasia.edu/api/user/upload/{fileid}"
+        print(url)
+        res = sso.delete(url)
+        js = json.loads(res.text)
+        return js["message"]
 
-
-
+    def reload(self):
+        self.now.init()
 
 
 def test():
     global sso
-    login_start = time.time()
-    username = 学号
-    password = 密码
-    login = Login(username, password)
-    sso = login.login()
-    print(f"登录耗时: {time.time()-login_start}")
+
+    if not os.path.exists(PATH_CONF):
+        with open("conf.json", "w") as f:
+            f.write("{}")
+    try:
+        with open("conf.json", "r") as f:
+            js = json.loads(f.read())
+    except Exception as e:
+        print(e)
+        with open("conf.json", "w") as f:
+            f.write("{}")
+        raise Exception("文件内容有误，已重置内容，请重新启动")
+    if not js.__contains__("username") or not js.__contains__("password"):
+        print("账号密码不全，请重新填写")
+        username = input("账号: ")
+        password = getpass.getpass("密码: ")
+    else:
+        username = js["username"]
+        password = base64.b64decode(js["password"].encode()).decode()
+
+    while 1:
+        try:
+            login_start = time.time()
+            login = Login(username, password)
+            sso = login.login()
+            print(f"登录耗时: {time.time() - login_start}")
+            time.sleep(1)
+            break
+        except Exception as e:
+            traceback.print_exc()
+            print("登陆失败，请重新输入账号密码")
+            username = input("账号: ")
+            password = getpass.getpass("密码: ")
+    with open("conf.json", "w") as f:
+        f.write(json.dumps({"username": username, "password": base64.b64encode(password.encode()).decode()}))
 
     fs_start = time.time()
     fs = FS()
@@ -281,26 +336,39 @@ def test():
             print(fs.ls())
         elif cmd[0] == "cd":
             try:
+                cd_start = time.time()
+                if cmd[-1] == "..":
+                    cd = cmd[-1]
+                    fs.cdid(cd)
+                else:
+                    cd = " ".join(cmd[1:])
+                    fs.cd(cd)
+                print(f"cd并获取新内容耗时: {time.time()-cd_start}")
+            except Exception as e:
+                traceback.print_exc()
+        elif cmd[0] == "cdid":
+            try:
                 if cmd[-1] == "..":
                     cdid = cmd[-1]
                 else:
                     cdid = int(cmd[-1])
                 cd_start = time.time()
-                fs.cd(cdid)
+                fs.cdid(cdid)
                 print(f"cd并获取新内容耗时: {time.time()-cd_start}")
             except Exception as e:
                 traceback.print_exc()
         elif cmd[0] == "get":
             try:
-                getid = int(cmd[-1])
+                getid = fs.getIdByIndex(int(cmd[-1]))
+                print(f"正在下载 - {fs.now.children[getid].name}")
                 get_start = time.time()
                 print(fs.now.children[getid].download())
                 print(f"下载内容耗时: {time.time() - get_start}")
             except Exception as e:
                 traceback.print_exc()
-        elif cmd[0] == "upload":
+        elif cmd[0] == "put":
             try:
-                filename = "".join(cmd[1:])
+                filename = " ".join(cmd[1:])
                 print(filename)
                 upload_start = time.time()
                 print(fs.upload(filename))
@@ -308,7 +376,16 @@ def test():
             except Exception as e:
                 traceback.print_exc()
         elif cmd[0] == "reload":
-            fs.now.init()
+            fs.reload()
+        elif cmd[0] == "del":
+            try:
+                index = int(cmd[-1])
+                print("正在删除文件名为:",fs.now.children[fs.getIdByIndex(index)].name)
+                del_start = time.time()
+                print(fs.delete(index))
+                print(f"删除内容耗时: {time.time() - del_start}")
+            except:
+                traceback.print_exc()
 
 
 

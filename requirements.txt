@@ -1,0 +1,4 @@
+requests
+pycryptodome
+requests_toolbelt
+pyquery

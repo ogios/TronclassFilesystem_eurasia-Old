@@ -15,7 +15,9 @@ class SSO:
         }
 
     def get(self, url, params=None, proxies=None, allow_redirects=True, stream=False, headers=None):
-        res = requests.get(url, params=params, headers=self.headers, cookies=self.cookies, proxies=proxies,
+        if headers is None:
+            headers = self.headers
+        res = requests.get(url, params=params, headers=headers, cookies=self.cookies, proxies=proxies,
                            allow_redirects=allow_redirects, stream=stream)
         self.resetCookies(res.cookies)
         return res
@@ -24,6 +26,14 @@ class SSO:
         if headers is None:
             headers = self.headers
         res = requests.post(url, params=params, data=data, proxies=proxies, headers=headers, cookies=self.cookies,
+                            allow_redirects=allow_redirects, stream=stream)
+        self.resetCookies(res.cookies)
+        return res
+
+    def delete(self, url, data=None, params=None, proxies=None, allow_redirects=True, stream=False, headers=None):
+        if headers is None:
+            headers = self.headers
+        res = requests.delete(url, params=params, data=data, proxies=proxies, headers=headers, cookies=self.cookies,
                             allow_redirects=allow_redirects, stream=stream)
         self.resetCookies(res.cookies)
         return res
@@ -47,6 +57,7 @@ class SSO:
         else:
             raise Exception("Cookies格式错误！格式仅可为 'dict' 或 'RequestsCookieJar'")
         return
+
 
 
 class Login:
